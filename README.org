@@ -1,0 +1,85 @@
+#+TITLE: org-glance-llm
+
+LLM sessions for [[https://github.com/rails-to-cosmos/org-glance][org-glance]] headlines — a separately installed *plugin*.
+
+Every headline gets its own [[https://github.com/rails-to-cosmos/agnostic-llm][agnostic-llm]] session, rooted in that headline's
+own directory, so the CLI's per-directory context accumulates per note.
+
+* Install
+
+#+begin_src emacs-lisp
+(add-to-list 'package-archives
+             '("rails-to-cosmos" . "https://rails-to-cosmos.github.io/elpa/"))
+
+(use-package org-glance-llm
+  :after org-glance
+  :ensure t
+  :init (setq org-glance-plugins '(llm)))
+#+end_src
+
+=org-glance-plugins= is core's plugin list: listing =llm= makes
+=org-glance-init= load this package.  =I= in =org-glance-transient= does the
+same interactively (and remembers it).  The dependency runs one way — this
+package requires org-glance — so a plain org-glance install stays free of
+=vterm=.
+
+* Use
+
+| Key       | Where             | Action                                                   |
+|-----------+-------------------+----------------------------------------------------------|
+| =l=       | transient         | pick a headline, open its session                        |
+| =L=       | transient         | table of every session: running / exited / stopped       |
+| =C-c l=   | material buffer   | open THIS headline's session                             |
+
+A session is identified by its *directory*: the headline's
+content-addressable data dir, or its =:ORG_GLANCE_PROJECT_DIR:= drawer
+property when set (=C-c d= in a materialized buffer sets it).  Reopening a
+headline switches to the live buffer, so one headline keeps one session;
+the =*llm:TITLE*= buffer name is cosmetic, so two same-titled headlines
+never share one.
+
+** The sessions table (=L=)
+
+One row per session, with its state derived live:
+
+| State     | Meaning                                                  |
+|-----------+----------------------------------------------------------|
+| =running= | live buffer, live process                                |
+| =exited=  | live buffer, process gone                                |
+| =stopped= | no buffer, but the provider recorded a transcript        |
+
+=RET= pops to a running session or restarts a stopped one, =m=
+materializes the owning headline, =k= kills a live buffer, =g= rescans.
+
+The expensive part — mapping every headline to its session dir and probing
+the provider's transcript store — is cached in
+=<store>/cache/llm-sessions.eld= (derived and rebuildable; git-ignored by
+core).  =L= reads only that cache and overlays live buffer state, so it
+opens instantly; sessions started since the last scan still show up as live
+rows.
+
+* Development
+
+#+begin_src sh
+make init   # install deps (incl. org-glance + agnostic-llm), compile, install
+make test   # ert suite
+make lint   # checkdoc + relint
+#+end_src
+
+The suite stubs =agnostic-llm= entirely (its =vterm= dependency cannot load
+in batch), so it exercises this package's own logic — session-dir
+resolution, the state machine, the cache round-trip, the table wiring —
+against a real org-glance store.
+
+* Plugin contract
+
+This package is the reference implementation of org-glance's plugin
+interface (see =docs/proposals/2026-07-23-plugin-interface.done.org= there):
+
+- provides feature =org-glance-llm=, loaded error-demoted from
+  =org-glance-plugins=;
+- self-registers its transient row (remove-then-append, so reloading never
+  duplicates) and its own =C-c l= material-buffer key;
+- persists only derived state, through core's public sidecar API
+  (=org-glance-graph:cache-read= / =:cache-write=);
+- uses core's public =:= API only — no =--= internals.
