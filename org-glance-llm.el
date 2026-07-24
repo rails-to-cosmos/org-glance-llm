@@ -139,18 +139,19 @@ The transient's `l', scoped to the buffer at hand."
 ;;
 ;; One row per LLM session -- a state machine over its lifetime: `running'
 ;; (live buffer, live process), `exited' (live buffer, dead process), and
-;; `stopped' (no buffer, but the provider recorded a transcript for the
-;; headline's session dir).  The EXPENSIVE part -- mapping every headline to
-;; its session dir and probing the provider's transcript store -- persists in
-;; a derived, rebuildable cache (`cache/llm-sessions.eld', invariant-5
-;; class): `L' reads only the cache (first ever run scans and writes it) and
-;; overlays LIVE buffer state, so it opens instantly; `g' rescans.  Live
-;; process/buffer state is never persisted (invariant 23).  Like the entry
-;; command, `agnostic-llm' (and thus vterm) loads lazily at run time.
+;; `stopped' (no buffer, but the provider recorded a transcript).  Rows come
+;; from two CHEAP live sources, never a full-graph scan: the provider's
+;; recorded session store, filtered to THIS graph's data dirs
+;; (`--recorded', O(recorded) -- a handful, not the thousands of headlines),
+;; for the historical `stopped' rows; overlaid with live `*llm:…*' buffers
+;; for running/exited state.  A recorded leaf name decodes straight back to
+;; its headline id (`--decode-id'), so titles and `m' work without probing a
+;; single extra headline.  Nothing is persisted -- state is always current,
+;; and there is no cache to go stale (invariant 23).  Like the entry command,
+;; `agnostic-llm' (and thus vterm) loads lazily at run time.
 
 (declare-function agnostic-llm "agnostic-llm" (&optional user-root label))
 (declare-function agnostic-llm--provider-get "agnostic-llm" (key))
-(declare-function agnostic-llm--session-dir "agnostic-llm" (dir))
 (declare-function agnostic-llm--session-file "agnostic-llm" (dir))
 (declare-function agnostic-llm--prompt-history-files "agnostic-llm" (&optional root))
 (declare-function agnostic-llm--prompt-preview "agnostic-llm" (file))
@@ -196,103 +197,87 @@ The transient's `l', scoped to the buffer at hand."
                            (file-attributes transcript)))
     ""))
 
-(defconst org-glance-llm--cache-name "llm-sessions.eld"
-  "Sidecar name under the store's `cache/' holding the session scan.
-Derived and rebuildable (org-glance invariant 5): safe to delete.")
+(cl-defun org-glance-llm--data-store-prefix (graph)
+  "Provider-name prefix (trailing `-') for GRAPH's headline data dirs.
+A recorded session leaf under `agnostic-llm--session-dir' begins with this
+exactly when its dir is a headline data dir in GRAPH; the tail is that
+headline's id as `SHARD-REST', the `/' between shard and rest flattened.
+Encodes GRAPH's data path the same way -- `/' and `.' to `-'."
+  (concat (replace-regexp-in-string
+           "[/.]" "-"
+           (directory-file-name
+            (expand-file-name (org-glance-graph:data-path graph))))
+          "-"))
 
-(cl-defun org-glance-llm--cache-file (graph)
-  "Path of GRAPH's persisted session-scan cache (may not exist)."
-  (org-glance-graph:cache-file graph org-glance-llm--cache-name))
+(cl-defun org-glance-llm--decode-id (name prefix)
+  "Headline id encoded in recorded session leaf NAME, or nil.
+Non-nil only when NAME begins with PREFIX (this graph's data store,
+`--data-store-prefix').  The remainder is the id as `org-glance-graph:headline-
+data-path' laid it out: a short id (<=2 chars, unsharded) is the tail itself;
+a longer one is a 2-char SHARD, a `-' (the flattened data-path `/'), then REST,
+rejoined here.  An id holding a literal `.' decodes wrong and drops out at the
+caller's `get-headline' check."
+  (when (string-prefix-p prefix name)
+    (let ((tail (substring name (length prefix))))
+      (cond ((zerop (length tail)) nil)
+            ((<= (length tail) 2) tail)
+            ((eq (aref tail 2) ?-) (concat (substring tail 0 2) (substring tail 3)))))))
 
-(cl-defun org-glance-llm--prune-legacy (graph)
-  "Delete the pre-`cache/' location of this plugin's sidecar, if present.
-`org-glance-graph-after-open-functions' hook (error-demoted by core); the
-plugin owns its filename, so the one-time migration lives here."
-  (let ((legacy (org-glance-graph:config-file graph org-glance-llm--cache-name)))
-    (when (file-exists-p legacy) (delete-file legacy))))
-(add-hook 'org-glance-graph-after-open-functions #'org-glance-llm--prune-legacy)
-
-(cl-defun org-glance-llm--scan (graph)
-  "Scan GRAPH for recorded sessions; return cache entries, no live state.
-One plist (`:dir' `:id' `:title' `:last' `:prompt') per headline whose
-session dir has a provider transcript.  Expensive -- one property-index
-lookup per headline (cold: a blob parse) plus the provider-store listing --
-which is why the result persists (`org-glance-llm--cache-write') and the
-table reads only the cache."
+(cl-defun org-glance-llm--recorded (graph)
+  "Recorded sessions for GRAPH as `(DIR ID META)' triples; O(recorded).
+Lists the provider's session store, keeps the leaves under GRAPH's data
+store (`--data-store-prefix'), and decodes each to its headline id and live
+metadata.  No headline scan -- only the handful of dirs with a transcript
+are touched, so this stays cheap however large the graph."
   (let* ((store (agnostic-llm--provider-get :session-dir))
-         (recorded (and (file-directory-p store)
-                        (directory-files store nil
-                                         directory-files-no-dot-files-regexp t)))
-         entries)
-    (dolist (meta (org-glance-graph:headlines graph))
-      (let* ((id (org-glance-headline-metadata:id meta))
-             (dir (org-glance-llm--dir graph id))
-             (transcript (and (member (file-name-nondirectory
-                                       (agnostic-llm--session-dir dir))
-                                      recorded)
-                              (agnostic-llm--session-file dir))))
-        (when transcript
-          (push (list :dir dir :id id
-                      :title (org-glance-headline-metadata:title meta)
-                      :last (org-glance-llm--last transcript)
-                      :prompt (org-glance-llm--last-prompt dir))
-                entries))))
-    (nreverse entries)))
+         (prefix (org-glance-llm--data-store-prefix graph))
+         result)
+    (when (file-directory-p store)
+      (dolist (name (directory-files store nil
+                                     directory-files-no-dot-files-regexp t))
+        (when-let* ((id (org-glance-llm--decode-id name prefix))
+                    (meta (org-glance-graph:get-headline graph id))
+                    ((org-glance-headline-metadata? meta)))
+          (push (list (org-glance-llm--dir graph id) id meta) result))))
+    (nreverse result)))
 
-(cl-defun org-glance-llm--cache-write (graph entries)
-  "Persist ENTRIES as GRAPH's session cache; return ENTRIES."
-  (org-glance-graph:cache-write graph org-glance-llm--cache-name entries))
-
-(cl-defun org-glance-llm--rescan (graph)
-  "Scan GRAPH's sessions, persist the result, return the entries.
-The expensive full rebuild: the cold-cache path and `g' both come here."
-  (org-glance-llm--cache-write graph (org-glance-llm--scan graph)))
-
-(cl-defun org-glance-llm--row (entry buf)
-  "Row for session ENTRY (a cache plist); state and buffer name come from
-live BUF (or nil).  The single row builder -- orphan live sessions route
-through it with a synthesized entry."
-  `((id . ,(plist-get entry :dir))
-    (headline . ,(plist-get entry :id))
-    (cells . ((title . ,(or (plist-get entry :title) ""))
+(cl-defun org-glance-llm--row-for (dir id title buf)
+  "Table row for the session at DIR (headline ID, may be nil) titled TITLE.
+State and buffer name come from live BUF (or nil); `last' and `prompt' read
+DIR's provider transcript and saved prompts.  The single row builder --
+recorded and orphan-live sessions both route through it."
+  `((id . ,dir)
+    (headline . ,id)
+    (cells . ((title . ,(or title ""))
               (state . ,(org-glance-llm--state buf))
               (buffer . ,(if buf (buffer-name buf) ""))
-              (last . ,(or (plist-get entry :last) ""))
-              (prompt . ,(if-let ((p (plist-get entry :prompt)))
+              (last . ,(org-glance-llm--last (agnostic-llm--session-file dir)))
+              (prompt . ,(if-let ((p (org-glance-llm--last-prompt dir)))
                              (truncate-string-to-width p 48 nil nil "…")
                            ""))
-              (dir . ,(abbreviate-file-name (plist-get entry :dir)))))))
+              (dir . ,(abbreviate-file-name dir))))))
 
-(cl-defun org-glance-llm--session-rows (graph &optional (entries nil entries?))
-  "Rows for the sessions table: the persisted cache + a LIVE overlay.
-Recorded sessions come from ENTRIES when given (a fresh rescan passing
-through), else the cache FILE (scanned and written only when the file is
-absent -- an empty cache is a valid answer, and a rescan needs `g'); their
-running/exited/stopped state and buffer names are derived live.  Live
-`*llm:…*' buffers missing from the cache (a session started since the last
-scan, or one owned by no headline) append as live rows -- so a fresh
-session is visible before any rescan."
-  (let ((entries (cond (entries? entries)
-                       ((file-exists-p (org-glance-llm--cache-file graph))
-                        (org-glance-graph:cache-read graph org-glance-llm--cache-name))
-                       (t (org-glance-llm--rescan graph))))
-        (buf-by-dir (make-hash-table :test 'equal))
+(cl-defun org-glance-llm--session-rows (graph)
+  "Rows for the sessions table, from two cheap live sources.
+GRAPH's recorded sessions (`--recorded', O(recorded)) give the historical
+`stopped' rows and their titles; live `*llm:…*' buffers overlay
+running/exited state and add any session missing from the store (a fresh
+one, or one owned by no headline).  No full-headline scan, no persisted
+cache -- the table is always current."
+  (let ((buf-by-dir (make-hash-table :test 'equal))
         rows)
     (dolist (buf (org-glance-llm--live-buffers))
       (puthash (org-glance-llm--buffer-dir buf) buf buf-by-dir))
-    (dolist (entry entries)
-      (let* ((dir (plist-get entry :dir))
-             (buf (gethash dir buf-by-dir)))
-        (remhash dir buf-by-dir)
-        (push (org-glance-llm--row entry buf) rows)))
+    (dolist (rec (org-glance-llm--recorded graph))
+      (pcase-let ((`(,dir ,id ,meta) rec))
+        (let ((buf (gethash dir buf-by-dir)))
+          (remhash dir buf-by-dir)
+          (push (org-glance-llm--row-for
+                 dir id (org-glance-headline-metadata:title meta) buf)
+                rows))))
     (maphash (lambda (dir buf)
-               (push (org-glance-llm--row
-                      (list :dir dir :id nil
-                            :title (org-glance-llm--buffer-label buf)
-                            :last (org-glance-llm--last
-                                   (agnostic-llm--session-file dir))
-                            :prompt (org-glance-llm--last-prompt dir))
-                      buf)
+               (push (org-glance-llm--row-for
+                      dir nil (org-glance-llm--buffer-label buf) buf)
                      rows))
              buf-by-dir)
     (nreverse rows)))
@@ -350,8 +335,8 @@ else DIR's leaf."
     (switch-to-buffer (org-glance-material:open graph id))))
 
 (cl-defun org-glance-llm-sessions:visit (graph)
-  "Open GRAPH's LLM sessions table, fed from the persisted session cache.
-`g' rescans the graph and rewrites the cache."
+  "Open GRAPH's LLM sessions table, enumerated live from the provider store.
+`g' re-reads the store and live buffers."
   (let* ((fill-fn (lambda (buf)
                     (with-current-buffer buf
                       (table-view-set-rows
@@ -367,8 +352,7 @@ else DIR's leaf."
                                               (org-glance-view:point-context)))
                                    (table-view-set-rows
                                     (current-buffer)
-                                    (org-glance-llm--session-rows
-                                     graph (org-glance-llm--rescan graph)))
+                                    (org-glance-llm--session-rows graph))
                                    (table-view-apply-sort)
                                    (org-glance-view:restore-point id line col)))))))
     (org-glance-view:display-table graph "*org-glance-llm-sessions*"
@@ -377,12 +361,12 @@ else DIR's leaf."
 ;;;###autoload
 (cl-defun org-glance-llm-sessions ()
   "Table of every LLM session, running, exited, or stopped -- instantly.
-Reads the persisted session cache (first ever run scans the graph and
-writes it; `g' rescans); running/exited state overlays live, and a session
-started since the last scan appears as a live row.  RET pops to a running
-session or (re)starts a stopped one; `m' materializes the owning headline;
-`k' kills a live buffer.  Loads `agnostic-llm' (and vterm) lazily, like
-`org-glance-llm'."
+History comes from the provider's recorded session store (this graph's
+sessions only), overlaid live with running/exited state and any buffer
+started since; `g' re-reads.  No full-graph scan, so it opens instantly
+however large the graph.  RET pops to a running session or (re)starts a
+stopped one; `m' materializes the owning headline; `k' kills a live buffer.
+Loads `agnostic-llm' (and vterm) lazily, like `org-glance-llm'."
   (interactive)
   (org-glance-ensure-init)
   (require 'agnostic-llm)

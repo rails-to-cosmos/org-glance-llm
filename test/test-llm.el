@@ -183,7 +183,7 @@ dir and the headline's title-slug label."
         (should (equal "alpha" (cdr started)))))))
 
 (ert-deftest org-glance-test:llm-sessions-visit ()
-  "The sessions table renders one row per session from the cache."
+  "The sessions table renders one row per session from the provider store."
   (org-glance-test:with-graph graph
     (org-glance-graph:add graph (org-glance-test:headline "a" "* TODO Alpha :x:"))
     (org-glance-test:llm-stubs (store)
@@ -197,29 +197,21 @@ dir and the headline's title-slug label."
                          (org-glance-test:table-cell
                           (org-glance-llm--dir graph "a") "state"))))))))
 
-(ert-deftest org-glance-test:llm-sessions-cache ()
-  "`L' reads only the persisted cache: the first rows call scans and writes
-it, later calls never rescan; a rescan (`g') picks up new sessions; a live
-session missing from the cache still appears as a live row."
+(ert-deftest org-glance-test:llm-sessions-live-refresh ()
+  "No cache -- the provider store is the source of truth: a session recorded
+after the first render appears on the very next `--session-rows' with no
+rescan step, and a live buffer absent from the store shows as a live row."
   (org-glance-test:with-graph graph
     (org-glance-graph:add graph
       (org-glance-test:headline "c1" "* TODO Coffee :coffee:")
       (org-glance-test:headline "x1" "* TODO Other :misc:"))
     (org-glance-test:llm-stubs (store)
       (org-glance-test:llm-record-session (org-glance-llm--dir graph "c1"))
-      ;; first call scans + persists
       (should (= 1 (length (org-glance-llm--session-rows graph))))
-      (should (f-exists? (org-glance-llm--cache-file graph)))
-      ;; cache-only reads: a new recorded session stays invisible, and the
-      ;; scanner must not run at all
+      ;; a newly recorded session is picked up immediately -- nothing to invalidate
       (org-glance-test:llm-record-session (org-glance-llm--dir graph "x1"))
-      (cl-letf (((symbol-function 'org-glance-llm--scan)
-                 (lambda (&rest _) (error "must not rescan"))))
-        (should (= 1 (length (org-glance-llm--session-rows graph)))))
-      ;; the refresh path rescans and the new session appears
-      (org-glance-llm--cache-write graph (org-glance-llm--scan graph))
       (should (= 2 (length (org-glance-llm--session-rows graph))))
-      ;; live overlay: a session absent from the cache shows as a live row
+      ;; live overlay: a buffer rooted outside the store shows as a live row
       (with-temp-directory extra
         (org-glance-test:with-llm-buffer (buf "orphan" extra)
           (let ((rows (org-glance-llm--session-rows graph)))
@@ -228,17 +220,13 @@ session missing from the cache still appears as a live row."
                              :key (lambda (r) (alist-get 'state (alist-get 'cells r)))
                              :test #'equal))))))))
 
-(ert-deftest org-glance-test:llm-sessions-empty-cache-valid ()
-  "An EMPTY cache is a valid answer: a zero-session store scans once,
-then never rescans on plain re-fills."
+(ert-deftest org-glance-test:llm-sessions-empty ()
+  "A store with no session for the graph yields no rows, stably across calls."
   (org-glance-test:with-graph graph
     (org-glance-graph:add graph (org-glance-test:headline "a" "* TODO Alpha"))
     (org-glance-test:llm-stubs (store)
-      (should-not (org-glance-llm--session-rows graph))      ; scans, writes []
-      (should (f-exists? (org-glance-llm--cache-file graph)))
-      (cl-letf (((symbol-function 'org-glance-llm--scan)
-                 (lambda (&rest _) (error "must not rescan"))))
-        (should-not (org-glance-llm--session-rows graph))))))
+      (should-not (org-glance-llm--session-rows graph))
+      (should-not (org-glance-llm--session-rows graph)))))
 
 (ert-deftest org-glance-test:llm-plugin-registration ()
   "Loading the plugin registers `l' / `L' in the transient; the loader
