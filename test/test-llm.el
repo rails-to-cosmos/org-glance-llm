@@ -230,7 +230,7 @@ rescan step, and a live buffer absent from the store shows as a live row."
 
 (ert-deftest org-glance-test:llm-plugin-registration ()
   "Loading the plugin registers `l' / `L' in the transient; the loader
-survives an unknown plugin; `org-glance-plugin-install' enables + records."
+survives an unknown plugin; `org-glance-plugin-enable' enables + records."
   ;; self-registered transient row (org-glance-ui + this plugin are loaded).
   ;; `transient-get-suffix' SIGNALS when absent, so the calls are the check.
   (transient-get-suffix 'org-glance-transient "l")
@@ -244,12 +244,12 @@ survives an unknown plugin; `org-glance-plugin-install' enables + records."
   ;; a plugin whose package is not installed says so, loudly
   (let ((org-glance-plugins nil))
     (cl-letf (((symbol-function 'completing-read) (lambda (&rest _) "nope-xyz")))
-      (should-error (call-interactively #'org-glance-plugin-install) :type 'user-error))
+      (should-error (call-interactively #'org-glance-plugin-enable) :type 'user-error))
     (should-not org-glance-plugins))
-  ;; install command: loads + records (batch skips customize-save)
+  ;; enable command: loads + records (batch skips customize-save)
   (let ((org-glance-plugins nil))
     (cl-letf (((symbol-function 'completing-read) (lambda (&rest _) "llm")))
-      (call-interactively #'org-glance-plugin-install))
+      (call-interactively #'org-glance-plugin-enable))
     (should (equal '(llm) org-glance-plugins))))
 
 (ert-deftest org-glance-test:llm-sessions-refresh-keeps-cell ()

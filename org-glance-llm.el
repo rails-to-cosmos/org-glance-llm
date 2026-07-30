@@ -3,7 +3,7 @@
 ;; Author: Dmitry Akatov <dmitry.akatov@protonmail.com>
 ;; Maintainer: Dmitry Akatov <dmitry.akatov@protonmail.com>
 ;; URL: https://github.com/rails-to-cosmos/org-glance-llm
-;; Version: 0.1.0.0.20260723.0
+;; Version: 0.1.1.0.20260730.0
 ;; Package-Requires: ((emacs "29.1") (org-glance "1.24") (agnostic-llm "0") (table-view "0"))
 ;; Keywords: convenience, outlines
 ;; SPDX-License-Identifier: MIT
@@ -31,9 +31,7 @@
 (require 'cl-lib)
 (require 'table-view)
 (require 'org-glance-core)
-(require 'org-glance-utils)
 (require 'org-glance-graph)
-(require 'org-glance-filter)
 (require 'org-glance-material)
 (require 'org-glance-property-index)
 (require 'org-glance-view)

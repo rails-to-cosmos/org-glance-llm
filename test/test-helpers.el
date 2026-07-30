@@ -79,17 +79,6 @@ found by the next test's live-session scan."
              (with-current-buffer b (set-buffer-modified-p nil))
              (kill-buffer b)))))))
 
-(cl-defmacro org-glance-test:with-material ((buffer graph id &rest opts) &rest body)
-  "Materialize ID from GRAPH into BUFFER, run BODY, kill it.
-OPTS pass through to `org-glance-material:open'."
-  (declare (indent 1))
-  `(let ((,buffer (org-glance-material:open ,graph ,id ,@opts)))
-     (unwind-protect
-         (with-current-buffer ,buffer ,@body)
-       (when (buffer-live-p ,buffer)
-         (with-current-buffer ,buffer (set-buffer-modified-p nil))
-         (kill-buffer ,buffer)))))
-
 (cl-defmacro org-glance-test:with-llm-buffer ((var name dir) &rest body)
   "Create live `*llm:NAME*' buffer VAR rooted at DIR; run BODY; kill it."
   (declare (indent 1))
@@ -100,14 +89,6 @@ OPTS pass through to `org-glance-material:open'."
              (setq default-directory (file-name-as-directory ,dir)))
            ,@body)
        (kill-buffer ,var))))
-
-(cl-defmacro org-glance-test:offering ((coll answer) &rest body)
-  "Stub `completing-read' around BODY, recording its collection in COLL."
-  (declare (indent 1))
-  `(let (,coll)
-     (cl-letf (((symbol-function 'completing-read)
-                (lambda (_p c &rest _) (setq ,coll c) ,answer)))
-       ,@body)))
 
 (cl-defun org-glance-test:goto-cell (id key)
   "Move point to row ID's KEY cell in the current table buffer, by key."

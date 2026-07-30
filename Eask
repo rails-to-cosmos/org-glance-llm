@@ -1,4 +1,4 @@
-(package "org-glance-llm" "0.1.0.0.20260723.0"
+(package "org-glance-llm" "0.1.1.0.20260730.0"
          "LLM sessions for org-glance headlines")
 
 (website-url "https://github.com/rails-to-cosmos/org-glance-llm")
@@ -27,8 +27,10 @@
 (eask-defcommand test
   "Run the ert suite.
 A sibling org-glance checkout wins over the installed package (dev against
-the core this plugin ships beside); the plugin file is loaded by PATH so a
-stale copy bundled in an older org-glance can never shadow it."
+the core this plugin ships beside).  Every own file -- plugin and both test
+files -- is loaded by ABSOLUTE path: `core' is on `load-path', and it ships
+a `test/test-helpers.el' of its own, so a relative `load' would resolve to
+the core copy and shadow this plugin's identically named fixtures."
   (setq ert-batch-backtrace-right-margin 1200)
   (let ((core (expand-file-name "../org-glance")))
     (when (file-directory-p core)
@@ -37,6 +39,6 @@ stale copy bundled in an older org-glance can never shadow it."
                          core))
         (add-to-list 'load-path dir))))
   (load (expand-file-name "org-glance-llm.el") nil t)
-  (load "test/test-helpers.el")
-  (load "test/test-llm.el")
+  (load (expand-file-name "test/test-helpers.el") nil t)
+  (load (expand-file-name "test/test-llm.el") nil t)
   (ert-run-tests-batch-and-exit))
