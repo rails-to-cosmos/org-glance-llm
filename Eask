@@ -1,4 +1,4 @@
-(package "org-glance-llm" "0.1.1.0.20260730.0"
+(package "org-glance-llm" "0.2.0.0.20260923.0"
          "LLM sessions for org-glance headlines")
 
 (website-url "https://github.com/rails-to-cosmos/org-glance-llm")
@@ -16,7 +16,7 @@
 
 (depends-on "emacs" "29.1")
 (depends-on "org-glance")
-(depends-on "agnostic-llm")
+(depends-on "agnostic-llm" "20260916.2109")
 (depends-on "table-view")
 
 ;; Dev-only: the linters (`make lint').

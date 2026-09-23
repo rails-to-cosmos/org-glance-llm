@@ -80,13 +80,15 @@ found by the next test's live-session scan."
              (kill-buffer b)))))))
 
 (cl-defmacro org-glance-test:with-llm-buffer ((var name dir) &rest body)
-  "Create live `*llm:NAME*' buffer VAR rooted at DIR; run BODY; kill it."
+  "Create active-provider `*llm:NAME*' buffer VAR rooted at DIR."
   (declare (indent 1))
-  `(let ((,var (get-buffer-create (format "*llm:%s*" ,name))))
+  `(let ((,var (get-buffer-create (format "*llm:%s*" ,name)))
+         (provider agnostic-llm-provider))
      (unwind-protect
          (progn
            (with-current-buffer ,var
-             (setq default-directory (file-name-as-directory ,dir)))
+             (setq default-directory (file-name-as-directory ,dir))
+             (setq-local agnostic-llm-provider provider))
            ,@body)
        (kill-buffer ,var))))
 

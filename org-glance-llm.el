@@ -3,8 +3,8 @@
 ;; Author: Dmitry Akatov <dmitry.akatov@protonmail.com>
 ;; Maintainer: Dmitry Akatov <dmitry.akatov@protonmail.com>
 ;; URL: https://github.com/rails-to-cosmos/org-glance-llm
-;; Version: 0.1.1.0.20260730.0
-;; Package-Requires: ((emacs "29.1") (org-glance "1.24") (agnostic-llm "0") (table-view "0"))
+;; Version: 0.2.0.0.20260923.0
+;; Package-Requires: ((emacs "29.1") (org-glance "1.24") (agnostic-llm "20260916.2109") (table-view "0"))
 ;; Keywords: convenience, outlines
 ;; SPDX-License-Identifier: MIT
 
@@ -16,9 +16,10 @@
 ;;
 ;; The `l' action: pick a headline and open the `agnostic-llm' menu pinned to
 ;; the headline's content-addressable data directory, so the CLI's per-directory
-;; context accumulates there.  The `*llm:…*' session buffer is named for the
-;; headline's title (see `org-glance-llm--label'); the data dir's hash is the
-;; fallback.
+;; context accumulates there.  The menu selects the provider first; its model
+;; choices then come from that provider's catalog.  The `*llm:…*' session
+;; buffer is named for the headline's title (see `org-glance-llm--label'); the
+;; data dir's hash is the fallback.
 ;;
 ;; A headline's session is identified by that data DIR -- a full-hash path
 ;; unique to the headline, kept as the session buffer's `default-directory'.
@@ -40,6 +41,8 @@
 ;; autoload only when the command runs, so org-glance never pulls in vterm at
 ;; load or byte-compile time.
 (declare-function agnostic-llm-menu "agnostic-llm" (&optional root label))
+(declare-function agnostic-llm-set-provider "agnostic-llm" (provider))
+(defvar agnostic-llm-provider 'claude)
 
 (cl-defun org-glance-llm--slug (title)
   "Downcased dash-separated slug of TITLE, or nil when it has no word chars.
@@ -58,13 +61,15 @@ Non-alphanumeric runs become one dash, edges trimmed (\"Buy milk (2L)!\" ->
   "Non-nil when BUF is a `*llm:…*' session buffer."
   (string-prefix-p "*llm:" (buffer-name buf)))
 
-(cl-defun org-glance-llm--session-buffer (dir)
-  "The live agnostic-llm session buffer rooted at DIR, or nil.
+(cl-defun org-glance-llm--session-buffer (dir &optional (provider agnostic-llm-provider))
+  "The live PROVIDER session buffer rooted at DIR, or nil.
 DIR is a headline's content-addressable data dir -- a full-hash path unique to
 the headline -- so matching a `*llm:…*' buffer's `default-directory' against it
-reuses that session, independent of the (cosmetic) title label."
+reuses that session, independent of the (cosmetic) title label.  Provider is
+part of the identity: Claude and Codex may both have a session for one DIR."
   (cl-find-if (lambda (buf)
                 (and (org-glance-llm--session-buffer? buf)
+                     (eq (buffer-local-value 'agnostic-llm-provider buf) provider)
                      (ignore-errors
                        (file-equal-p (buffer-local-value 'default-directory buf)
                                      dir))))
@@ -105,8 +110,8 @@ buffer is already live, switch to it.  Otherwise materialize the headline and,
 from its blob buffer, open `agnostic-llm-menu' with the session directory and
 buffer name overridden.  The session directory is the headline's
 `ORG_GLANCE_PROJECT_DIR' property when set (see `org-glance-llm--dir'), else its
-content-addressable data dir; the label is the title slug
-(`org-glance-llm--label').  The menu highlights the override."
+content-addressable data dir.  Its label is the title slug from
+`org-glance-llm--label'.  The menu highlights the override."
   (interactive)
   (org-glance-ensure-init)
   (org-glance-llm--open-session org-glance-graph
@@ -151,6 +156,7 @@ The transient's `l', scoped to the buffer at hand."
 (declare-function agnostic-llm "agnostic-llm" (&optional user-root label))
 (declare-function agnostic-llm--provider-get "agnostic-llm" (key))
 (declare-function agnostic-llm--session-file "agnostic-llm" (dir))
+(declare-function agnostic-llm--codex-session-meta "agnostic-llm" (file))
 (declare-function agnostic-llm--prompt-history-files "agnostic-llm" (&optional root))
 (declare-function agnostic-llm--prompt-preview "agnostic-llm" (file))
 (defvar agnostic-llm--root-override)
@@ -163,17 +169,21 @@ The transient's `l', scoped to the buffer at hand."
       name)))
 
 (cl-defun org-glance-llm--buffer-dir (buf)
-  "BUF's session root: its `agnostic-llm--root-override', else its
-`default-directory', as a directory name."
+  "Return BUF's session root as a directory name.
+Use its `agnostic-llm--root-override', then its `default-directory'."
   (file-name-as-directory
    (expand-file-name
     (or (and (local-variable-p 'agnostic-llm--root-override buf)
              (buffer-local-value 'agnostic-llm--root-override buf))
         (buffer-local-value 'default-directory buf)))))
 
-(cl-defun org-glance-llm--live-buffers ()
-  "Every live `*llm:…*' session buffer."
-  (cl-remove-if-not #'org-glance-llm--session-buffer? (buffer-list)))
+(cl-defun org-glance-llm--live-buffers (&optional (provider agnostic-llm-provider))
+  "Every live PROVIDER `*llm:…*' session buffer."
+  (cl-remove-if-not
+   (lambda (buf)
+     (and (org-glance-llm--session-buffer? buf)
+          (eq (buffer-local-value 'agnostic-llm-provider buf) provider)))
+   (buffer-list)))
 
 (cl-defun org-glance-llm--state (buf)
   "Session state for BUF (nil = no buffer): running / exited / stopped."
@@ -184,7 +194,7 @@ The transient's `l', scoped to the buffer at hand."
 
 (cl-defun org-glance-llm--last-prompt (dir)
   "One-line preview of DIR's newest saved prompt, or nil."
-  (when-let ((file (car (agnostic-llm--prompt-history-files dir))))
+  (when-let* ((file (car (agnostic-llm--prompt-history-files dir))))
     (agnostic-llm--prompt-preview file)))
 
 (cl-defun org-glance-llm--last (transcript)
@@ -221,12 +231,8 @@ caller's `get-headline' check."
             ((<= (length tail) 2) tail)
             ((eq (aref tail 2) ?-) (concat (substring tail 0 2) (substring tail 3)))))))
 
-(cl-defun org-glance-llm--recorded (graph)
-  "Recorded sessions for GRAPH as `(DIR ID META)' triples; O(recorded).
-Lists the provider's session store, keeps the leaves under GRAPH's data
-store (`--data-store-prefix'), and decodes each to its headline id and live
-metadata.  No headline scan -- only the handful of dirs with a transcript
-are touched, so this stays cheap however large the graph."
+(cl-defun org-glance-llm--recorded-encoded (graph)
+  "Directory-encoded provider sessions for GRAPH as `(DIR ID META)' triples."
   (let* ((store (agnostic-llm--provider-get :session-dir))
          (prefix (org-glance-llm--data-store-prefix graph))
          result)
@@ -239,6 +245,47 @@ are touched, so this stays cheap however large the graph."
           (push (list (org-glance-llm--dir graph id) id meta) result))))
     (nreverse result)))
 
+(cl-defun org-glance-llm--id-from-data-dir (graph dir)
+  "Headline id encoded by GRAPH's content-addressable data directory DIR."
+  (let* ((root (file-name-as-directory
+                (expand-file-name (org-glance-graph:data-path graph))))
+         (path (file-name-as-directory (expand-file-name dir))))
+    (when (string-prefix-p root path)
+      (let ((parts (split-string (directory-file-name
+                                  (file-relative-name path root))
+                                 "/" t)))
+        (pcase parts
+          (`(,short) (and (<= (length short) 2) short))
+          (`(,shard ,rest) (and (= (length shard) 2) (concat shard rest))))))))
+
+(cl-defun org-glance-llm--recorded-codex (graph)
+  "Codex sessions for GRAPH as `(DIR ID META)' triples; O(recorded).
+Codex stores rollouts by date, so read each rollout's small metadata prefix,
+deduplicate its working directory, and decode only directories in GRAPH's data
+store.  Project-directory overrides remain visible while their buffers live."
+  (let ((store (expand-file-name (agnostic-llm--provider-get :session-dir)))
+        (regexp (agnostic-llm--provider-get :session-file-regexp))
+        (seen (make-hash-table :test 'equal))
+        result)
+    (when (file-directory-p store)
+      (dolist (file (directory-files-recursively store regexp))
+        (pcase-let ((`(,cwd . ,originator) (agnostic-llm--codex-session-meta file)))
+          (when (and cwd (equal originator "codex-tui") (not (gethash cwd seen)))
+            (puthash cwd t seen)
+            (when-let* ((id (org-glance-llm--id-from-data-dir graph cwd))
+                        (meta (org-glance-graph:get-headline graph id))
+                        ((org-glance-headline-metadata? meta)))
+              (push (list (org-glance-llm--dir graph id) id meta) result))))))
+    (nreverse result)))
+
+(cl-defun org-glance-llm--recorded (graph)
+  "Active provider's recorded sessions for GRAPH; O(recorded), never O(headlines).
+Claude's store encodes the project directory in each direct child.  Codex uses
+date-partitioned rollouts whose metadata names the working directory."
+  (if (eq agnostic-llm-provider 'codex)
+      (org-glance-llm--recorded-codex graph)
+    (org-glance-llm--recorded-encoded graph)))
+
 (cl-defun org-glance-llm--row-for (dir id title buf)
   "Table row for the session at DIR (headline ID, may be nil) titled TITLE.
 State and buffer name come from live BUF (or nil); `last' and `prompt' read
@@ -246,11 +293,12 @@ DIR's provider transcript and saved prompts.  The single row builder --
 recorded and orphan-live sessions both route through it."
   `((id . ,dir)
     (headline . ,id)
-    (cells . ((title . ,(or title ""))
+    (cells . ((provider . ,(symbol-name agnostic-llm-provider))
+              (title . ,(or title ""))
               (state . ,(org-glance-llm--state buf))
               (buffer . ,(if buf (buffer-name buf) ""))
               (last . ,(org-glance-llm--last (agnostic-llm--session-file dir)))
-              (prompt . ,(if-let ((p (org-glance-llm--last-prompt dir)))
+              (prompt . ,(if-let* ((p (org-glance-llm--last-prompt dir)))
                              (truncate-string-to-width p 48 nil nil "…")
                            ""))
               (dir . ,(abbreviate-file-name dir))))))
@@ -282,7 +330,8 @@ cache -- the table is always current."
 
 (defconst org-glance-llm--sessions-spec
   '((title . "org-glance llm sessions")
-    (columns . (((key . "state")  (header . "State")  (type . "badge") (sortable . t) (align . "left")
+    (columns . (((key . "provider") (header . "Provider") (type . "badge") (sortable . t) (align . "left"))
+                ((key . "state")  (header . "State")  (type . "badge") (sortable . t) (align . "left")
                  (badges . (((value . "running") (color . "#9ece6a"))
                             ((value . "exited")  (color . "#e0af68"))
                             ((value . "stopped") (color . "#565f89")))))
@@ -301,7 +350,8 @@ A constant: it depends on no graph state,
 and `table-view-display' never mutates a passed spec.")
 
 (cl-defun org-glance-llm--act-open (graph dir row)
-  "Pop to DIR's running session; else (re)start it, continuing its transcript.
+  "Pop to DIR's running session in GRAPH or restart it from ROW.
+The restarted session continues its transcript.
 The label: the owning headline's title slug, else the old buffer's label,
 else DIR's leaf."
   (let ((buf (org-glance-llm--session-buffer dir)))
@@ -327,7 +377,7 @@ else DIR's leaf."
            (table-view-apply-sort)))))
 
 (cl-defun org-glance-llm--act-materialize (graph row)
-  "Materialize the row's owning headline."
+  "Materialize ROW's owning headline in GRAPH."
   (let ((id (alist-get 'headline row)))
     (unless id (user-error "This session belongs to no headline"))
     (switch-to-buffer (org-glance-material:open graph id))))
@@ -375,13 +425,15 @@ Loads `agnostic-llm' (and vterm) lazily, like `org-glance-llm'."
 (define-key org-glance-material-mode-map (kbd "C-c l") #'org-glance-llm-here)
 
 ;; Plugin self-registration: the core transient hardcodes no plugin keys;
-;; this plugin appends its own `l' / `L' row after the Actions group.
+;; this plugin appends its own provider / `l' / `L' row after the Actions group.
 ;; Remove-then-append keeps a reload from duplicating the row.
 (with-eval-after-load 'org-glance-ui
+  (ignore-errors (transient-remove-suffix 'org-glance-transient "P"))
   (ignore-errors (transient-remove-suffix 'org-glance-transient "l"))
   (ignore-errors (transient-remove-suffix 'org-glance-transient "L"))
   (transient-append-suffix 'org-glance-transient '(2)
     [:class transient-row
+     ("P" "LLM provider" agnostic-llm-set-provider)
      ("l" "LLM session" org-glance-llm)
      ("L" "LLM sessions" org-glance-llm-sessions)]))
 

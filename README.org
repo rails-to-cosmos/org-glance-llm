@@ -3,7 +3,8 @@
 LLM sessions for [[https://github.com/rails-to-cosmos/org-glance][org-glance]] headlines — a separately installed *plugin*.
 
 Every headline gets its own [[https://github.com/rails-to-cosmos/agnostic-llm][agnostic-llm]] session, rooted in that headline's
-own directory, so the CLI's per-directory context accumulates per note.
+own directory, so the CLI's per-directory context accumulates per note.  Claude
+Code and OpenAI Codex are supported as separate providers.
 
 * Install
 
@@ -27,6 +28,7 @@ package requires org-glance — so a plain org-glance install stays free of
 
 | Key       | Where             | Action                                                   |
 |-----------+-------------------+----------------------------------------------------------|
+| =P=       | transient         | choose the provider                                      |
 | =l=       | transient         | pick a headline, open its session                        |
 | =L=       | transient         | table of every session: running / exited / stopped       |
 | =C-c l=   | material buffer   | open THIS headline's session                             |
@@ -34,9 +36,27 @@ package requires org-glance — so a plain org-glance install stays free of
 A session is identified by its *directory*: the headline's
 content-addressable data dir, or its =:ORG_GLANCE_PROJECT_DIR:= drawer
 property when set (=C-c d= in a materialized buffer sets it).  Reopening a
-headline switches to the live buffer, so one headline keeps one session;
+headline switches to the live buffer for the selected provider, so one headline
+may keep an independent Claude session and Codex session;
 the =*llm:TITLE*= buffer name is cosmetic, so two same-titled headlines
 never share one.
+
+** Provider and model
+
+The transient's =P= chooses and saves the provider before a session is opened.
+The pinned =agnostic-llm= menu owns model selection and also exposes the same
+provider command:
+
+| Key | Action                                                           |
+|-----+------------------------------------------------------------------|
+| =B= | choose and save the provider (=claude=, =codex=, or a registered one) |
+| =-m= | choose a model from the selected provider's catalog               |
+| =M= | save a default model for that provider                              |
+
+Changing provider immediately changes the models offered by =-m=.  The plugin
+does not maintain a second model list.  Claude sessions use the Claude CLI and
+session store; Codex sessions use the Codex CLI and its date-partitioned rollout
+store.  Install and authenticate the CLI for each provider you use.
 
 ** The sessions table (=L=)
 
@@ -48,15 +68,14 @@ One row per session, with its state derived live:
 | =exited=  | live buffer, process gone                                |
 | =stopped= | no buffer, but the provider recorded a transcript        |
 
-=RET= pops to a running session or restarts a stopped one, =m=
+=RET= pops to a running session or restarts a stopped one with the currently
+selected provider, =m=
 materializes the owning headline, =k= kills a live buffer, =g= rescans.
 
-The expensive part — mapping every headline to its session dir and probing
-the provider's transcript store — is cached in
-=<store>/cache/llm-sessions.eld= (derived and rebuildable; git-ignored by
-core).  =L= reads only that cache and overlays live buffer state, so it
-opens instantly; sessions started since the last scan still show up as live
-rows.
+=L= reads only the selected provider's recorded sessions and overlays its live
+buffers.  Claude's directory-encoded store and Codex's rollout metadata both map
+directly back to headline ids, so opening the table remains O(recorded sessions)
+and never scans every headline.
 
 * Development
 

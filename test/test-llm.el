@@ -40,6 +40,17 @@ pinned to its data dir and title label."
             (should (eq shown buf))
             (should-not menu-called)))))))
 
+(ert-deftest org-glance-test:llm-session-identity-includes-provider ()
+  "Claude and Codex sessions rooted at one headline remain distinct."
+  (with-temp-directory dir
+    (let ((agnostic-llm-provider 'claude))
+      (org-glance-test:with-llm-buffer (claude "same" dir)
+        (let ((agnostic-llm-provider 'codex))
+          (org-glance-test:with-llm-buffer (codex "same-codex" dir)
+            (should (eq codex (org-glance-llm--session-buffer dir)))
+            (should (equal (list codex) (org-glance-llm--live-buffers)))
+            (should (eq claude (org-glance-llm--session-buffer dir 'claude)))))))))
+
 (ert-deftest org-glance-test:llm-slug-and-collision ()
   "`org-glance-llm--slug' normalises a title; `--label' disambiguates only when
 a session for a different headline already holds the plain slug."
@@ -117,6 +128,26 @@ the newest `.jsonl' inside is the transcript; prompt history is empty."
   (let ((sdir (agnostic-llm--session-dir dir)))
     (make-directory sdir t)
     (with-temp-file (expand-file-name "s.jsonl" sdir) (insert "{}"))))
+
+(ert-deftest org-glance-test:llm-codex-recorded-sessions ()
+  "Codex's date-partitioned rollouts map their CWD back to a headline."
+  (org-glance-test:with-graph graph
+    (org-glance-graph:add graph (org-glance-test:headline "abcdef" "* TODO Alpha"))
+    (with-temp-directory store
+      (let* ((agnostic-llm-provider 'codex)
+             (dir (org-glance-llm--dir graph "abcdef"))
+             (rollout (expand-file-name "2026/09/23/rollout-test.jsonl" store)))
+        (make-directory (file-name-directory rollout) t)
+        (with-temp-file rollout (insert "{}"))
+        (cl-letf (((symbol-function 'agnostic-llm--provider-get)
+                   (lambda (key) (pcase key
+                                   (:session-dir store)
+                                   (:session-file-regexp "rollout-.*\\.jsonl\\'"))))
+                  ((symbol-function 'agnostic-llm--codex-session-meta)
+                   (lambda (_file) (cons dir "codex-tui"))))
+          (let ((recorded (org-glance-llm--recorded graph)))
+            (should (= 1 (length recorded)))
+            (should (equal "abcdef" (cadar recorded)))))))))
 
 (ert-deftest org-glance-test:llm-sessions-state ()
   "State machine: no buffer -> stopped; dead buffer -> exited; live -> running."
@@ -229,10 +260,11 @@ rescan step, and a live buffer absent from the store shows as a live row."
       (should-not (org-glance-llm--session-rows graph)))))
 
 (ert-deftest org-glance-test:llm-plugin-registration ()
-  "Loading the plugin registers `l' / `L' in the transient; the loader
+  "Loading the plugin registers `P' / `l' / `L' in the transient; the loader
 survives an unknown plugin; `org-glance-plugin-enable' enables + records."
   ;; self-registered transient row (org-glance-ui + this plugin are loaded).
   ;; `transient-get-suffix' SIGNALS when absent, so the calls are the check.
+  (transient-get-suffix 'org-glance-transient "P")
   (transient-get-suffix 'org-glance-transient "l")
   (transient-get-suffix 'org-glance-transient "L")
   ;; ...and the material-buffer key: C-c l = this headline's session
