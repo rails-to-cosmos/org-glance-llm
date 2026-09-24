@@ -24,7 +24,8 @@ for the selected provider.
    keep `--data-store-prefix` and `--decode-id` in lock-step and verify decoded
    ids through `get-headline`.
 7. **Transient self-registration is idempotent** — remove then append the
-   provider/`l`/`L` row so reloading never duplicates it.
+   `l`/`L` row so reloading never duplicates it. Provider selection stays in
+   the pinned LLM menu.
 8. **Tests load their own files by absolute path** — the sibling `../org-glance`
    checkout has identically named helpers; relative loading can shadow these.
 

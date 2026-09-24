@@ -28,7 +28,6 @@ package requires org-glance — so a plain org-glance install stays free of
 
 | Key       | Where             | Action                                                   |
 |-----------+-------------------+----------------------------------------------------------|
-| =P=       | transient         | choose the provider                                      |
 | =l=       | transient         | pick a headline, open its session                        |
 | =L=       | transient         | table of every session: running / exited / stopped       |
 | =C-c l=   | material buffer   | open THIS headline's session                             |
@@ -43,17 +42,17 @@ never share one.
 
 ** Provider and model
 
-The transient's =P= chooses and saves the provider before a session is opened.
-The pinned =agnostic-llm= menu owns model selection and also exposes the same
-provider command:
+The pinned =agnostic-llm= menu owns provider and model selection:
 
 | Key | Action                                                           |
 |-----+------------------------------------------------------------------|
-| =B= | choose and save the provider (=claude=, =codex=, or a registered one) |
+| =B= | choose and save the provider; stay in the menu and show the result     |
 | =-m= | choose a model from the selected provider's catalog               |
 | =M= | save a default model for that provider                              |
 
-Changing provider immediately changes the models offered by =-m=.  The plugin
+The =B= label includes the current provider.  Changing it clears model and
+effort overrides from the previous provider and immediately changes the choices
+offered by =-m= and =-e=.  The plugin
 does not maintain a second model list.  Claude sessions use the Claude CLI and
 session store; Codex sessions use the Codex CLI and its date-partitioned rollout
 store.  Install and authenticate the CLI for each provider you use.

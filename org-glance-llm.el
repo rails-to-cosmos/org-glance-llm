@@ -44,6 +44,27 @@
 (declare-function agnostic-llm-set-provider "agnostic-llm" (provider))
 (defvar agnostic-llm-provider 'claude)
 
+(cl-defun org-glance-llm--provider-description ()
+  "Describe the provider choice in the active LLM menu."
+  (format "Provider [%s]" agnostic-llm-provider))
+
+(transient-define-suffix org-glance-llm--menu-set-provider ()
+  "Choose the provider, refresh its model choices, and keep the LLM menu open."
+  :description #'org-glance-llm--provider-description
+  :transient t
+  (interactive)
+  (call-interactively #'agnostic-llm-set-provider)
+  ;; A model or effort selected before the provider changed belongs to the old
+  ;; catalog.  Clear both live infixes; the redisplay reads the new catalog.
+  (dolist (command '(agnostic-llm--menu-model-option
+                     agnostic-llm--menu-effort-option))
+    (when-let* ((infix (transient-suffix-object command)))
+      (transient-infix-set infix nil))))
+
+(with-eval-after-load 'agnostic-llm
+  (transient-replace-suffix 'agnostic-llm-menu "B"
+    '("B" org-glance-llm--menu-set-provider)))
+
 (cl-defun org-glance-llm--slug (title)
   "Downcased dash-separated slug of TITLE, or nil when it has no word chars.
 Non-alphanumeric runs become one dash, edges trimmed (\"Buy milk (2L)!\" ->
@@ -425,15 +446,13 @@ Loads `agnostic-llm' (and vterm) lazily, like `org-glance-llm'."
 (define-key org-glance-material-mode-map (kbd "C-c l") #'org-glance-llm-here)
 
 ;; Plugin self-registration: the core transient hardcodes no plugin keys;
-;; this plugin appends its own provider / `l' / `L' row after the Actions group.
+;; this plugin appends its own `l' / `L' row after the Actions group.
 ;; Remove-then-append keeps a reload from duplicating the row.
 (with-eval-after-load 'org-glance-ui
-  (ignore-errors (transient-remove-suffix 'org-glance-transient "P"))
   (ignore-errors (transient-remove-suffix 'org-glance-transient "l"))
   (ignore-errors (transient-remove-suffix 'org-glance-transient "L"))
   (transient-append-suffix 'org-glance-transient '(2)
     [:class transient-row
-     ("P" "LLM provider" agnostic-llm-set-provider)
      ("l" "LLM session" org-glance-llm)
      ("L" "LLM sessions" org-glance-llm-sessions)]))
 

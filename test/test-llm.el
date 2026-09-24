@@ -259,12 +259,37 @@ rescan step, and a live buffer absent from the store shows as a live row."
       (should-not (org-glance-llm--session-rows graph))
       (should-not (org-glance-llm--session-rows graph)))))
 
+(ert-deftest org-glance-test:llm-provider-description ()
+  "The sticky LLM-menu choice says which provider controls its model catalog."
+  (let ((agnostic-llm-provider 'codex))
+    (should (equal "Provider [codex]"
+                   (org-glance-llm--provider-description))))
+  (should (eq t (oref (get 'org-glance-llm--menu-set-provider
+                           'transient--suffix)
+                       transient))))
+
+(ert-deftest org-glance-test:llm-provider-stays-in-llm-menu ()
+  "Provider selection stays in the LLM menu and clears old catalog choices."
+  (let ((agnostic-llm-provider 'claude)
+        cleared)
+    (cl-letf (((symbol-function 'agnostic-llm-set-provider)
+               (lambda () (interactive) (setq agnostic-llm-provider 'codex)))
+              ((symbol-function 'transient-suffix-object)
+               (lambda (command) command))
+              ((symbol-function 'transient-infix-set)
+               (lambda (infix value) (push (cons infix value) cleared))))
+      (org-glance-llm--menu-set-provider)
+      (should (eq agnostic-llm-provider 'codex))
+      (should (equal '((agnostic-llm--menu-effort-option)
+                       (agnostic-llm--menu-model-option))
+                     cleared)))))
+
 (ert-deftest org-glance-test:llm-plugin-registration ()
-  "Loading the plugin registers `P' / `l' / `L' in the transient; the loader
+  "Loading the plugin registers `l' / `L' in the transient; the loader
 survives an unknown plugin; `org-glance-plugin-enable' enables + records."
   ;; self-registered transient row (org-glance-ui + this plugin are loaded).
   ;; `transient-get-suffix' SIGNALS when absent, so the calls are the check.
-  (transient-get-suffix 'org-glance-transient "P")
+  (should-error (transient-get-suffix 'org-glance-transient "P"))
   (transient-get-suffix 'org-glance-transient "l")
   (transient-get-suffix 'org-glance-transient "L")
   ;; ...and the material-buffer key: C-c l = this headline's session
