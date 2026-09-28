@@ -3,7 +3,7 @@
 ;; Author: Dmitry Akatov <dmitry.akatov@protonmail.com>
 ;; Maintainer: Dmitry Akatov <dmitry.akatov@protonmail.com>
 ;; URL: https://github.com/rails-to-cosmos/org-glance-llm
-;; Version: 0.3.0.0.20260924.0
+;; Version: 0.4.0.0.20260928.0
 ;; Package-Requires: ((emacs "29.1") (org-glance "1.24") (agnostic-llm "20260916.2109") (table-view "0"))
 ;; Keywords: convenience, outlines
 ;; SPDX-License-Identifier: MIT
@@ -45,7 +45,7 @@
 (defvar agnostic-llm-provider 'claude)
 
 (cl-defun org-glance-llm--provider-description ()
-  "Describe the provider choice in the active LLM menu."
+  "Describe the provider choice like the menu's model option."
   (format "Provider [%s]" agnostic-llm-provider))
 
 (transient-define-suffix org-glance-llm--menu-set-provider ()
@@ -61,9 +61,17 @@
     (when-let* ((infix (transient-suffix-object command)))
       (transient-infix-set infix nil))))
 
+(cl-defun org-glance-llm--install-provider-option ()
+  "Place the provider choice beside model in `agnostic-llm-menu'."
+  (when (ignore-errors (transient-get-suffix 'agnostic-llm-menu "B"))
+    (transient-remove-suffix 'agnostic-llm-menu "B"))
+  (when (ignore-errors (transient-get-suffix 'agnostic-llm-menu "-p"))
+    (transient-remove-suffix 'agnostic-llm-menu "-p"))
+  (transient-insert-suffix 'agnostic-llm-menu "-m"
+    '("-p" org-glance-llm--menu-set-provider)))
+
 (with-eval-after-load 'agnostic-llm
-  (transient-replace-suffix 'agnostic-llm-menu "B"
-    '("B" org-glance-llm--menu-set-provider)))
+  (org-glance-llm--install-provider-option))
 
 (cl-defun org-glance-llm--slug (title)
   "Downcased dash-separated slug of TITLE, or nil when it has no word chars.

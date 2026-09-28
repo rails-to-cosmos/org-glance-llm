@@ -260,13 +260,29 @@ rescan step, and a live buffer absent from the store shows as a live row."
       (should-not (org-glance-llm--session-rows graph)))))
 
 (ert-deftest org-glance-test:llm-provider-description ()
-  "The sticky LLM-menu choice says which provider controls its model catalog."
+  "The provider choice shows its current value like the model choice."
   (let ((agnostic-llm-provider 'codex))
     (should (equal "Provider [codex]"
                    (org-glance-llm--provider-description))))
   (should (eq t (oref (get 'org-glance-llm--menu-set-provider
                            'transient--suffix)
                        transient))))
+
+(ert-deftest org-glance-test:llm-provider-option-beside-model ()
+  "`-p' precedes `-m' in options and remains unique after registration."
+  (require 'agnostic-llm)
+  (org-glance-llm--install-provider-option)
+  (should-error (transient-get-suffix 'agnostic-llm-menu "B"))
+  (should (equal 'org-glance-llm--menu-set-provider
+                 (plist-get (cdr (transient-get-suffix 'agnostic-llm-menu "-p"))
+                            :command)))
+  (let* ((layout (get 'agnostic-llm-menu 'transient--layout))
+         (options (aref (car (aref layout 2)) 2))
+         (keys (mapcar (lambda (suffix) (plist-get (cdr suffix) :key)) options)))
+    (should (equal '("-p" "-m")
+                   (cl-subseq keys (cl-position "-p" keys :test #'equal)
+                              (1+ (cl-position "-m" keys :test #'equal)))))
+    (should (= 1 (cl-count "-p" keys :test #'equal)))))
 
 (ert-deftest org-glance-test:llm-provider-stays-in-llm-menu ()
   "Provider selection stays in the LLM menu and clears old catalog choices."
