@@ -33,4 +33,4 @@ for the selected provider.
 
 - `make test` — clean, compile, run ERT (needs sibling `../org-glance`).
 - `make lint` — checkdoc and relint.
-- `make patch|minor|major|build|rev` — bump versions in `Eask` and the Elisp header.
+- `make patch|minor|major|build|rev` — bump the Elisp header version; `Eask` derives its metadata from it.

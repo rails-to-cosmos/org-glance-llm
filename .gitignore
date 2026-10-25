@@ -1,3 +1,4 @@
 *.elc
 .eask/
 dist/
+/dist/packages/

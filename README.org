@@ -1,5 +1,17 @@
 #+TITLE: org-glance-llm
 
+* Local installation
+
+=make install-emacs= builds the declared release into =~/.emacs.d= using the
+sibling =elpa= tooling. =make check-emacs= reads its installation receipt.
+Override =ELPA_TOOLS=, =EMACS=, or =EMACS_CONFIG= as needed; =DEV=1= permits
+working changes and same-version replacements. =packages.json= selects files;
+the Lisp header owns the version and dependencies. Eask derives both.
+The timestamp requirement on =agnostic-llm= is now its corresponding release,
+=0.12.0.0.20261025.0=. Restart Emacs after upgrading.
+
+* Overview
+
 LLM sessions for [[https://github.com/rails-to-cosmos/org-glance][org-glance]] headlines — a separately installed *plugin*.
 
 Every headline gets its own [[https://github.com/rails-to-cosmos/agnostic-llm][agnostic-llm]] session, rooted in that headline's

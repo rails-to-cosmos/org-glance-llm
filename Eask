@@ -1,11 +1,25 @@
-(package "org-glance-llm" "0.5.1.0.20261025.0"
-         "LLM sessions for org-glance headlines")
+(require 'package)
+(require 'json)
+
+(let ((desc (with-temp-buffer
+              (insert-file-contents "org-glance-llm.el")
+              (package-buffer-info))))
+  (package (symbol-name (package-desc-name desc))
+           (package-version-join (package-desc-version desc))
+           (package-desc-summary desc))
+  (dolist (requirement (package-desc-reqs desc))
+    (depends-on (symbol-name (car requirement))
+                (package-version-join (cadr requirement)))))
 
 (website-url "https://github.com/rails-to-cosmos/org-glance-llm")
 (keywords "convenience" "outlines")
 
 (package-file "org-glance-llm.el")
-(files "*.el")
+(let* ((json-object-type 'alist)
+       (json-key-type 'string)
+       (json-array-type 'list)
+       (spec (car (json-read-file "packages.json"))))
+  (apply #'files (mapcar #'car (cdr (assoc "files" spec)))))
 
 
 (script "test" "echo \"Error: no test specified\" && exit 1")
@@ -14,10 +28,6 @@
 (source "melpa")
 (source "rails-to-cosmos" "https://rails-to-cosmos.github.io/elpa/")
 
-(depends-on "emacs" "29.1")
-(depends-on "org-glance")
-(depends-on "agnostic-llm" "20261025")
-(depends-on "table-view")
 
 ;; Dev-only: the linters (`make lint').
 (development

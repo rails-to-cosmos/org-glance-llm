@@ -3,8 +3,8 @@
 ;; Author: Dmitry Akatov <dmitry.akatov@protonmail.com>
 ;; Maintainer: Dmitry Akatov <dmitry.akatov@protonmail.com>
 ;; URL: https://github.com/rails-to-cosmos/org-glance-llm
-;; Version: 0.5.1.0.20261025.0
-;; Package-Requires: ((emacs "29.1") (org-glance "1.24") (agnostic-llm "20261025") (table-view "0"))
+;; Version: 0.5.1.0.20261025.1
+;; Package-Requires: ((emacs "29.1") (org-glance "1.24") (agnostic-llm "0.12.0.0.20261025.0") (table-view "0"))
 ;; Keywords: convenience, outlines
 ;; SPDX-License-Identifier: MIT
 
