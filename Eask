@@ -1,4 +1,4 @@
-(package "org-glance-llm" "0.5.0.0.20261025.0"
+(package "org-glance-llm" "0.5.1.0.20261025.0"
          "LLM sessions for org-glance headlines")
 
 (website-url "https://github.com/rails-to-cosmos/org-glance-llm")

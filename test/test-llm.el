@@ -5,20 +5,31 @@
 (ert-deftest org-glance-test:llm-materializes-then-opens-menu ()
   "`org-glance-llm' materializes the headline, then opens `agnostic-llm-menu'
 pinned to its data dir and title label."
+  (require 'agnostic-llm)
   (org-glance-test:session
     (org-glance-graph:add org-glance-graph
                           (org-glance-test:headline "llmid" "* TODO Alpha :x:" "body"))
-    (let ((root 'unset) (label 'unset))
+    (let ((root 'unset) (label 'unset) header)
       (org-glance-test:with-shown (mat)
         (cl-letf (((symbol-function 'completing-read) (lambda (_p coll &rest _) (caar coll)))
                   ((symbol-function 'agnostic-llm-menu)
-                   (lambda (&optional dir lbl) (setq root dir label lbl))))
+                   (lambda (&optional dir lbl)
+                     (setq root dir label lbl)
+                     (cl-letf (((symbol-function 'transient-scope)
+                                (lambda () (list :root dir :label lbl)))
+                               ((symbol-function 'transient-get-value)
+                                (lambda () '("--session-name=worker"))))
+                       (setq header
+                             (substring-no-properties
+                              (agnostic-llm--menu-header)))))))
           (org-glance-llm))
         (let ((expected (org-glance-graph:headline-data-path org-glance-graph "llmid")))
           (should (s-suffix? "/" root))          ; directory-valued, slash-terminated
           (should (file-equal-p root expected))
           (should (file-directory-p root))
           (should (equal "alpha" label))
+          (should (string-suffix-p
+                   " buffer=*llm:alpha-worker*" header))
           ;; the headline was materialized (its blob buffer) before the menu
           (should (buffer-live-p mat))
           (with-current-buffer mat (should org-glance-material-mode)))))))
