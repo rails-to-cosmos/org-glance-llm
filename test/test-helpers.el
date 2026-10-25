@@ -26,15 +26,17 @@
   "Create a graph in a fresh temp directory, bind it to GRAPH, run BODY."
   (declare (indent 1))
   `(with-temp-directory dir
-     (let ((,graph (org-glance-graph dir)))
-       ,@body)))
+     (cl-letf (((symbol-function 'org-glance-cache:refresh-async) #'ignore))
+       (let ((,graph (org-glance-graph dir)))
+         ,@body))))
 
 (cl-defmacro org-glance-test:session (&rest body)
   "Initialize org-glance in a temp directory and run BODY."
   (declare (indent 0))
   `(with-temp-directory org-glance-directory
-     (org-glance-init org-glance-directory)
-     ,@body))
+     (cl-letf (((symbol-function 'org-glance-cache:refresh-async) #'ignore))
+       (org-glance-init org-glance-directory)
+       ,@body)))
 
 (cl-defun org-glance-test:headline-props (id heading props &rest body)
   "Build a headline: HEADING, planning lines from BODY's head, the drawer
@@ -79,8 +81,10 @@ found by the next test's live-session scan."
              (with-current-buffer b (set-buffer-modified-p nil))
              (kill-buffer b)))))))
 
-(cl-defmacro org-glance-test:with-llm-buffer ((var name dir) &rest body)
-  "Create active-provider `*llm:NAME*' buffer VAR rooted at DIR."
+(cl-defmacro org-glance-test:with-llm-buffer
+    ((var name dir &optional session-name session-label) &rest body)
+  "Create active-provider `*llm:NAME*' buffer VAR rooted at DIR.
+SESSION-NAME and SESSION-LABEL become its optional named-session identity."
   (declare (indent 1))
   `(let ((,var (get-buffer-create (format "*llm:%s*" ,name)))
          (provider agnostic-llm-provider))
@@ -88,7 +92,9 @@ found by the next test's live-session scan."
          (progn
            (with-current-buffer ,var
              (setq default-directory (file-name-as-directory ,dir))
-             (setq-local agnostic-llm-provider provider))
+             (setq-local agnostic-llm-provider provider)
+             (setq-local agnostic-llm-session-name ,session-name)
+             (setq-local agnostic-llm-session-label ,session-label))
            ,@body)
        (kill-buffer ,var))))
 

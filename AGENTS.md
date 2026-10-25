@@ -6,9 +6,9 @@ for the selected provider.
 
 ## Invariants
 
-1. **One session per provider and headline** — identity is the provider plus
-   session directory, never the cosmetic title. Claude and Codex may both own a
-   session rooted at one headline.
+1. **Named session identity** — identity is provider, session directory, and
+   canonical session name. The empty name is the default session; named
+   sessions coexist under one headline.
 2. **Session state is never persisted** — running/exited/stopped is derived live
    from provider-recorded sessions and buffers. `L` stays O(recorded sessions)
    and never scans all headlines.

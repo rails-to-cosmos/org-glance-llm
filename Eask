@@ -1,4 +1,4 @@
-(package "org-glance-llm" "0.4.0.0.20260928.0"
+(package "org-glance-llm" "0.5.0.0.20261025.0"
          "LLM sessions for org-glance headlines")
 
 (website-url "https://github.com/rails-to-cosmos/org-glance-llm")
@@ -16,7 +16,7 @@
 
 (depends-on "emacs" "29.1")
 (depends-on "org-glance")
-(depends-on "agnostic-llm" "20260916.2109")
+(depends-on "agnostic-llm" "20261025")
 (depends-on "table-view")
 
 ;; Dev-only: the linters (`make lint').
@@ -38,6 +38,10 @@ the core copy and shadow this plugin's identically named fixtures."
                          (expand-file-name "src/data" core)
                          core))
         (add-to-list 'load-path dir))))
+  (let ((agnostic (expand-file-name "../agnostic-llm")))
+    (when (file-directory-p agnostic)
+      (add-to-list 'load-path agnostic)))
+  (provide 'vterm)
   (load (expand-file-name "org-glance-llm.el") nil t)
   (load (expand-file-name "test/test-helpers.el") nil t)
   (load (expand-file-name "test/test-llm.el") nil t)

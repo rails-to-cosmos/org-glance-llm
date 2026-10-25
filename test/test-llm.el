@@ -23,9 +23,8 @@ pinned to its data dir and title label."
           (should (buffer-live-p mat))
           (with-current-buffer mat (should org-glance-material-mode)))))))
 
-(ert-deftest org-glance-test:llm-switches-to-live-session ()
-  "When the headline's session buffer is already live (matched by its data dir),
-`org-glance-llm' switches to that buffer and leaves the menu alone."
+(ert-deftest org-glance-test:llm-live-session-still-opens-name-menu ()
+  "A live default session does not hide the menu for selecting another name."
   (org-glance-test:session
     (org-glance-graph:add org-glance-graph
                           (org-glance-test:headline "llmid" "* TODO Alpha :x:"))
@@ -37,8 +36,8 @@ pinned to its data dir and title label."
           (cl-letf (((symbol-function 'completing-read) (lambda (_p coll &rest _) (caar coll)))
                     ((symbol-function 'agnostic-llm-menu) (lambda (&rest _) (setq menu-called t))))
             (org-glance-llm)
-            (should (eq shown buf))
-            (should-not menu-called)))))))
+            (should-not (eq shown buf))
+            (should menu-called)))))))
 
 (ert-deftest org-glance-test:llm-session-identity-includes-provider ()
   "Claude and Codex sessions rooted at one headline remain distinct."
@@ -49,7 +48,21 @@ pinned to its data dir and title label."
           (org-glance-test:with-llm-buffer (codex "same-codex" dir)
             (should (eq codex (org-glance-llm--session-buffer dir)))
             (should (equal (list codex) (org-glance-llm--live-buffers)))
-            (should (eq claude (org-glance-llm--session-buffer dir 'claude)))))))))
+            (should (eq claude (org-glance-llm--session-buffer
+                                dir :provider 'claude)))))))))
+
+(ert-deftest org-glance-test:llm-session-identity-includes-name ()
+  "Two named sessions for one provider and root remain distinct."
+  (with-temp-directory dir
+    (org-glance-test:with-llm-buffer
+        (worker "project-worker" dir "worker" "project--worker")
+      (org-glance-test:with-llm-buffer
+          (reviewer "project-reviewer" dir "reviewer" "project--reviewer")
+        (should (eq worker (org-glance-llm--session-buffer
+                            dir :session-name "worker")))
+        (should (eq reviewer (org-glance-llm--session-buffer
+                              dir :session-name "reviewer")))
+        (should-not (org-glance-llm--session-buffer dir))))))
 
 (ert-deftest org-glance-test:llm-slug-and-collision ()
   "`org-glance-llm--slug' normalises a title; `--label' disambiguates only when
@@ -106,7 +119,9 @@ the newest `.jsonl' inside is the transcript; prompt history is empty."
   (declare (indent 1))
   `(with-temp-directory ,store
      (cl-letf* (((symbol-function 'agnostic-llm--provider-get)
-                 (lambda (key) (when (eq key :session-dir) ,store)))
+                 (lambda (key) (pcase key
+                                 (:session-dir ,store)
+                                 (:session-file-regexp "\\.jsonl\\'"))))
                 ((symbol-function 'agnostic-llm--session-dir)
                  (lambda (dir)
                    (expand-file-name
@@ -120,6 +135,8 @@ the newest `.jsonl' inside is the transcript; prompt history is empty."
                           (car (directory-files sdir t "\\.jsonl\\'" t))))))
                 ((symbol-function 'agnostic-llm--prompt-history-files)
                  (lambda (&optional _) nil))
+                ((symbol-function 'agnostic-llm--named-sessions)
+                 (lambda (_dir) nil))
                 ((symbol-function 'agnostic-llm--prompt-preview) #'identity))
        ,@body)))
 
@@ -144,7 +161,11 @@ the newest `.jsonl' inside is the transcript; prompt history is empty."
                                    (:session-dir store)
                                    (:session-file-regexp "rollout-.*\\.jsonl\\'"))))
                   ((symbol-function 'agnostic-llm--codex-session-meta)
-                   (lambda (_file) (cons dir "codex-tui"))))
+                   (lambda (_file) (cons dir "codex-tui")))
+                  ((symbol-function 'agnostic-llm--codex-name-index)
+                   (lambda () nil))
+                  ((symbol-function 'agnostic-llm--codex-session-id)
+                   (lambda (_file) nil)))
           (let ((recorded (org-glance-llm--recorded graph)))
             (should (= 1 (length recorded)))
             (should (equal "abcdef" (cadar recorded)))))))))
@@ -198,6 +219,33 @@ buffers appear as `exited'/`running'; headlines without sessions are absent."
                     (should (equal "extra" (alist-get 'title cells)))
                     (should (equal "exited" (alist-get 'state cells))))))))))
 
+(ert-deftest org-glance-test:llm-recorded-name-survives-table-and-restart ()
+  "A stopped provider-named session keeps its role in the table and restart."
+  (org-glance-test:with-graph graph
+    (org-glance-graph:add graph
+      (org-glance-test:headline "a" "* TODO Org Glance"))
+    (org-glance-test:llm-stubs (store)
+      (let* ((dir (org-glance-llm--dir graph "a"))
+             (provider-dir (agnostic-llm--session-dir dir))
+             (file (expand-file-name "named.jsonl" provider-dir))
+             started)
+        (make-directory provider-dir t)
+        (with-temp-file file (insert "{}"))
+        (cl-letf (((symbol-function 'agnostic-llm--named-sessions)
+                   (lambda (_dir)
+                     (list (list "org-glance--worker" "session-id" file))))
+                  ((symbol-function 'agnostic-llm)
+                   (lambda (&optional root label session-name)
+                     (setq started (list root label session-name)))))
+          (let* ((rows (org-glance-llm--session-rows graph))
+                 (row (car rows))
+                 (cells (alist-get 'cells row)))
+            (should (= 1 (length rows)))
+            (should (equal "worker" (alist-get 'name cells)))
+            (should (equal "stopped" (alist-get 'state cells)))
+            (org-glance-llm--act-open graph row)
+            (should (equal (list dir "org-glance" "worker") started))))))))
+
 (ert-deftest org-glance-test:llm-sessions-open-restarts-stopped ()
   "RET on a stopped headline session starts `agnostic-llm' with the session
 dir and the headline's title-slug label."
@@ -205,13 +253,15 @@ dir and the headline's title-slug label."
     (org-glance-graph:add graph (org-glance-test:headline "a" "* TODO Alpha :x:"))
     (org-glance-test:llm-stubs (store)
       (let* ((dir (org-glance-llm--dir graph "a"))
-             (row `((id . ,dir) (headline . "a")))
+             (row `((id . ,dir) (dir . ,dir) (headline . "a")))
              (started nil))
         (cl-letf (((symbol-function 'agnostic-llm)
-                   (lambda (&optional root label) (setq started (cons root label)))))
-          (org-glance-llm--act-open graph dir row))
+                   (lambda (&optional root label session-name)
+                     (setq started (list root label session-name)))))
+          (org-glance-llm--act-open graph row))
         (should (equal dir (car started)))
-        (should (equal "alpha" (cdr started)))))))
+        (should (equal "alpha" (cadr started)))
+        (should-not (caddr started))))))
 
 (ert-deftest org-glance-test:llm-sessions-visit ()
   "The sessions table renders one row per session from the provider store."

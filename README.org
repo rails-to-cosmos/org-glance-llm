@@ -34,11 +34,13 @@ package requires org-glance — so a plain org-glance install stays free of
 
 A session is identified by its *directory*: the headline's
 content-addressable data dir, or its =:ORG_GLANCE_PROJECT_DIR:= drawer
-property when set (=C-c d= in a materialized buffer sets it).  Reopening a
-headline switches to the live buffer for the selected provider, so one headline
-may keep an independent Claude session and Codex session;
-the =*llm:TITLE*= buffer name is cosmetic, so two same-titled headlines
-never share one.
+property when set (=C-c d= in a materialized buffer sets it).  Opening a
+headline returns to the LLM menu, where =c= reuses the selected provider and
+name.  One headline may keep independent Claude and Codex sessions.  The
+LLM menu's =-n= option
+adds a named conversation: =worker= for the =org-glance= headline opens
+=*llm:org-glance-worker*=.  Provider, directory, and canonical name form the
+session identity, so =worker= and =reviewer= coexist under one headline.
 
 ** Provider and model
 
@@ -48,6 +50,7 @@ The pinned =agnostic-llm= menu owns provider and model selection:
 |------+----------------------------------------------------------------|
 | =-p= | choose and save the provider; stay in the menu                  |
 | =-m= | choose a model from the selected provider's catalog            |
+| =-n= | name an independent session and its model role                  |
 | =M=  | save a default model for that provider                          |
 
 The =-p= label shows the current provider beside the =-m= model choice.
@@ -59,7 +62,7 @@ store.  Install and authenticate the CLI for each provider you use.
 
 ** The sessions table (=L=)
 
-One row per session, with its state derived live:
+One row per session, including its optional Name, with state derived live:
 
 | State     | Meaning                                                  |
 |-----------+----------------------------------------------------------|
@@ -86,7 +89,7 @@ make lint   # checkdoc + relint
 
 The suite stubs =agnostic-llm= entirely (its =vterm= dependency cannot load
 in batch), so it exercises this package's own logic — session-dir
-resolution, the state machine, the cache round-trip, the table wiring —
+resolution, named-session identity, the state machine, and table wiring —
 against a real org-glance store.
 
 * Plugin contract
