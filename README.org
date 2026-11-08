@@ -116,3 +116,11 @@ interface (see =docs/proposals/2026-07-23-plugin-interface.done.org= there):
 - persists only derived state, through core's public sidecar API
   (=org-glance-graph:cache-read= / =:cache-write=);
 - uses core's public =:= API only — no =--= internals.
+
+* Performance tracing
+
+Enable =org-glance-perf-mode= in core to trace selection, directory resolution,
+session menus and terminal creation in =*Messages*=. This plugin registers its
+own commands, stages and menu continuations through =org-glance-perf:register=;
+registration preserves lazy provider loading and is idempotent on reload.
+Provider readiness and first model output require provider-specific tracing.

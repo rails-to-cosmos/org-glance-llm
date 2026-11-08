@@ -400,5 +400,26 @@ headline table -- point never drops to the buffer top."
           (funcall (cdr (assoc "refresh" table-view--handlers)) nil nil)
           (should (equal "title" (get-text-property (point) 'table-view-col))))))))
 
+
+(ert-deftest org-glance-test:llm-registers-performance-stages-lazily ()
+  "Reloading registers each timing symbol once and preserves provider laziness."
+  (let ((org-glance-perf-commands '(org-glance-materialize))
+        (org-glance-perf-stages nil)
+        (org-glance-perf-continuations '(org-glance-transient))
+        (loaded (featurep 'agnostic-llm))
+        (original-require (symbol-function 'require)))
+    (cl-letf (((symbol-function 'require)
+               (lambda (feature &rest args)
+                 (when (memq feature '(agnostic-llm vterm))
+                   (ert-fail "Plugin eagerly required a provider dependency"))
+                 (apply original-require feature args))))
+      (dotimes (_ 2)
+        (load (expand-file-name "org-glance-llm.el" default-directory) nil t)))
+    (should (eq loaded (featurep 'agnostic-llm)))
+    (should (= 1 (cl-count 'org-glance-materialize org-glance-perf-commands)))
+    (should (= 1 (cl-count 'org-glance-llm org-glance-perf-commands)))
+    (should (= 1 (cl-count 'agnostic-llm--open-vterm org-glance-perf-stages)))
+    (should (= 1 (cl-count 'org-glance-llm org-glance-perf-continuations)))))
+
 (provide 'test-llm)
 ;;; test-llm.el ends here

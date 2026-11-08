@@ -40,6 +40,20 @@
 ;; load or byte-compile time.
 (declare-function agnostic-llm-menu "agnostic-llm" (&optional root label))
 (declare-function agnostic-llm-set-provider "agnostic-llm" (provider))
+(declare-function org-glance-perf:register "org-glance-perf" (&rest args))
+
+(with-eval-after-load 'org-glance-perf
+  (when (fboundp 'org-glance-perf:register)
+    (org-glance-perf:register
+     :commands '(org-glance-llm org-glance-llm-here org-glance-llm-sessions
+                 agnostic-llm--menu-open-session agnostic-llm)
+     :stages '(org-glance-llm--dir org-glance-llm--label
+               org-glance-llm--open-session org-glance-llm--session-rows
+               agnostic-llm-menu agnostic-llm--session-shell-command
+               agnostic-llm--open-vterm agnostic-llm--named-session
+               vterm)
+     :continuations '(org-glance-llm org-glance-llm-here))))
+
 (defvar agnostic-llm-provider 'claude)
 (defvar agnostic-llm-session-name nil)
 
